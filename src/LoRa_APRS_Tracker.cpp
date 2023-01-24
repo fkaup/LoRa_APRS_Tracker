@@ -43,6 +43,8 @@ String padding(unsigned int number, unsigned int width);
 static bool send_update          = true;
 static bool display_toggle_value = true;
 
+static long rx_timestamp = 0;
+
 static void handle_tx_click() {
   send_update = true;
 }
@@ -116,6 +118,16 @@ void setup() {
 // cppcheck-suppress unusedFunction
 void loop() {
   userButton.tick();
+
+  //check and receive rx data
+  int rLength = LoRa.parsePacket();
+  if (rLength > 0) {
+    String rf_in = LoRa.readString();
+    logger.log(logging::LoggerLevel::LOGGER_LEVEL_INFO, "Main", "Packet received with length %d", rLength);
+    logger.log(logging::LoggerLevel::LOGGER_LEVEL_INFO, "Main", "Received: %s", rf_in);
+    show_display("Last RX", rf_in, 0);
+    rx_timestamp = now();
+  }
 
   if (Config.debug) {
     while (Serial.available() > 0) {
@@ -233,6 +245,7 @@ void loop() {
     msg.setPath(BeaconMan.getCurrentBeaconConfig()->path);
     msg.setDestination("APLT00");
 
+ 
     if (!BeaconMan.getCurrentBeaconConfig()->enhance_precision) {
       lat = create_lat_aprs(gps.location.rawLat());
       lng = create_long_aprs(gps.location.rawLng());
@@ -311,6 +324,7 @@ void loop() {
     // APRS Data:
     LoRa.write((const uint8_t *)data.c_str(), data.length());
     LoRa.endPacket();
+    LoRa.receive();
 
     if (BeaconMan.getCurrentBeaconConfig()->smart_beacon.active) {
       lastTxLat       = gps.location.lat();
@@ -327,8 +341,9 @@ void loop() {
   }
 
   if (gps_time_update) {
-
-    show_display(BeaconMan.getCurrentBeaconConfig()->callsign, createDateString(now()) + "   " + createTimeString(now()), String("Sats: ") + gps.satellites.value() + " HDOP: " + gps.hdop.hdop(), String("Next Bcn: ") + (BeaconMan.getCurrentBeaconConfig()->smart_beacon.active ? "~" : "") + createTimeString(nextBeaconTimeStamp), BatteryIsConnected ? (String("Bat: ") + batteryVoltage + "V, " + batteryChargeCurrent + "mA") : "Powered via USB", String("Smart Beacon: " + getSmartBeaconState()));
+    if ((now() - rx_timestamp) > 30){
+      show_display(BeaconMan.getCurrentBeaconConfig()->callsign, createDateString(now()) + "   " + createTimeString(now()), String("Sats: ") + gps.satellites.value() + " HDOP: " + gps.hdop.hdop(), String("Next Bcn: ") + (BeaconMan.getCurrentBeaconConfig()->smart_beacon.active ? "~" : "") + createTimeString(nextBeaconTimeStamp), BatteryIsConnected ? (String("Bat: ") + batteryVoltage + "V, " + batteryChargeCurrent + "mA") : "Powered via USB", String("Smart Beacon: " + getSmartBeaconState()));
+    }
 
     if (BeaconMan.getCurrentBeaconConfig()->smart_beacon.active) {
       // Change the Tx internal based on the current speed
@@ -398,6 +413,9 @@ void setup_lora() {
   LoRa.setTxPower(Config.lora.power);
   logger.log(logging::LoggerLevel::LOGGER_LEVEL_INFO, "LoRa", "LoRa init done!");
   show_display("INFO", "LoRa init done!", 2000);
+
+  //start rx'ing
+  LoRa.receive();
 }
 
 void setup_gps() {
